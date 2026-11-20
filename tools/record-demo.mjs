@@ -1,7 +1,8 @@
 // Builds the README demo GIF from a scripted walkthrough against a local
-// fixture page, using only synthetic, clearly fake credentials. A synthetic
-// cursor glides to each control and clicks it, so the GIF reads as a real
-// interaction instead of a slideshow of static states.
+// fixture page, using only synthetic, clearly fake credentials. The popup is
+// staged inside a wide, rounded "window" frame with Mac style traffic lights,
+// and a synthetic cursor glides in and clicks each control, so the GIF reads
+// as a real interaction instead of a slideshow of static states.
 // Run with: node tools/record-demo.mjs
 import { PNG } from "pngjs";
 import gifenc from "gifenc";
@@ -14,6 +15,12 @@ import { launch, stageExtension } from "../tests/harness.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = join(root, "assets", "demo.gif");
+
+// The outer canvas the window sits on, and the window itself. Landscape, not
+// a tall phone shaped strip, and content that overflows the window scrolls
+// inside it instead of growing the frame.
+const CANVAS = { width: 980, height: 660 };
+const WINDOW = { width: 560, height: 580, titlebar: 34 };
 
 // A believable but obviously fake site, for a clean looking demo.
 const PAGE = `<!doctype html><html><head><meta charset="utf-8">
@@ -43,6 +50,101 @@ function startServer() {
   return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve({ server, port: server.address().port })));
 }
 
+// ---- Mac style window chrome -----------------------------------------------
+
+// Moves the popup's own body content into a rounded, scrollable "window" with
+// a title bar, centered on a wide canvas. Everything the popup already does
+// (its own CSS, its own elements) is untouched, just relocated on screen.
+async function stageAsWindow(pop) {
+  await pop.addStyleTag({
+    content: `
+      html { background: transparent !important; }
+      body {
+        box-sizing: border-box !important;
+        width: ${CANVAS.width}px !important;
+        min-width: 0 !important;
+        max-width: none !important;
+        height: ${CANVAS.height}px !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        background: radial-gradient(ellipse at 28% 18%, #343a46 0%, #15161a 65%) !important;
+        overflow: hidden !important;
+      }
+      #__demo_window__ {
+        width: ${WINDOW.width}px;
+        height: ${WINDOW.height}px;
+        border-radius: 14px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        background: #1b1d21;
+        box-shadow: 0 32px 64px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.06);
+      }
+      #__demo_titlebar__ {
+        flex: none;
+        height: ${WINDOW.titlebar}px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 14px;
+        background: #24272c;
+        border-bottom: 1px solid #31353c;
+        position: relative;
+      }
+      #__demo_titlebar__ i { width: 12px; height: 12px; border-radius: 50%; display: block; }
+      #__demo_titlebar__ span {
+        position: absolute;
+        left: 0;
+        right: 0;
+        text-align: center;
+        font: 600 12px system-ui, sans-serif;
+        color: #8a8f98;
+        pointer-events: none;
+      }
+      #__demo_content__ {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        width: 520px;
+        margin: 0 auto;
+      }
+      #__demo_content__ > * { width: 100% !important; }
+    `
+  });
+  await pop.evaluate(() => {
+    const kids = [...document.body.children];
+    const win = document.createElement("div");
+    win.id = "__demo_window__";
+    const bar = document.createElement("div");
+    bar.id = "__demo_titlebar__";
+    bar.innerHTML =
+      '<i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span>AuthTracer</span>';
+    const content = document.createElement("div");
+    content.id = "__demo_content__";
+    for (const k of kids) content.appendChild(k);
+    win.append(bar, content);
+    document.body.appendChild(win);
+  });
+}
+
+async function scrollContentTo(pop, locator) {
+  if (await locator.count()) {
+    await locator.evaluate((el) => el.scrollIntoView({ block: "center" }));
+    await pop.waitForTimeout(60);
+  }
+}
+
+async function scrollContentToBottom(pop) {
+  await pop.evaluate(() => {
+    const c = document.getElementById("__demo_content__");
+    if (c) c.scrollTop = c.scrollHeight;
+  });
+  await pop.waitForTimeout(60);
+}
+
 // ---- Synthetic cursor -----------------------------------------------------
 
 async function injectCursor(pop, startX, startY) {
@@ -66,30 +168,24 @@ async function injectCursor(pop, startX, startY) {
 }
 
 async function setCursor(pop, x, y) {
-  await pop.evaluate(
-    ({ x, y }) => {
-      const cur = document.getElementById("__demo_cursor__");
-      if (cur) {
-        cur.style.left = `${x}px`;
-        cur.style.top = `${y}px`;
-      }
-    },
-    { x, y }
-  );
+  await pop.evaluate(({ x, y }) => {
+    const cur = document.getElementById("__demo_cursor__");
+    if (cur) {
+      cur.style.left = `${x}px`;
+      cur.style.top = `${y}px`;
+    }
+  }, { x, y });
 }
 
 async function setRipple(pop, x, y, visible) {
-  await pop.evaluate(
-    ({ x, y, visible }) => {
-      const r = document.getElementById("__demo_ripple__");
-      if (!r) return;
-      r.style.left = `${x}px`;
-      r.style.top = `${y}px`;
-      r.style.opacity = visible ? "1" : "0";
-      r.style.transform = `translate(-50%,-50%) scale(${visible ? 1 : 0.4})`;
-    },
-    { x, y, visible }
-  );
+  await pop.evaluate(({ x, y, visible }) => {
+    const r = document.getElementById("__demo_ripple__");
+    if (!r) return;
+    r.style.left = `${x}px`;
+    r.style.top = `${y}px`;
+    r.style.opacity = visible ? "1" : "0";
+    r.style.transform = `translate(-50%,-50%) scale(${visible ? 1 : 0.4})`;
+  }, { x, y, visible });
 }
 
 // Glides the cursor toward a target, taking a frame at every step, with an
@@ -105,9 +201,11 @@ async function glideTo(pop, shot, from, to, steps = 10, holdMs = 35) {
   return to;
 }
 
-// Moves to a locator's center, shows a click ripple, performs the real click,
-// then settles. Returns the point clicked, so the next move can start there.
+// Scrolls the target into view, moves to it, shows a click ripple, performs
+// the real click, then settles. Returns the point clicked, so the next move
+// can start there.
 async function clickAt(pop, shot, cursorAt, locator, { settleMs = 90, afterMs = 1100 } = {}) {
+  await scrollContentTo(pop, locator);
   const box = await locator.boundingBox();
   const target = { x: box.x + box.width / 2, y: box.y + Math.min(box.height / 2, 14) };
   const at = await glideTo(pop, shot, cursorAt, target);
@@ -140,16 +238,19 @@ async function main() {
   );
 
   const pop = await ctx.newPage();
-  await pop.setViewportSize({ width: 540, height: 940 }); // popup body is 520px wide
+  await pop.setViewportSize(CANVAS);
   await pop.goto(`chrome-extension://${id}/popup/popup.html?tab=${tabId}`);
   await pop.waitForSelector("#enable");
+  await stageAsWindow(pop);
 
   const frames = [];
   const shot = async (holdMs) => frames.push({ buf: await pop.screenshot({ type: "png" }), holdMs });
 
-  let cursorAt = { x: 490, y: 30 };
+  const windowLeft = (CANVAS.width - WINDOW.width) / 2;
+  const windowTop = (CANVAS.height - WINDOW.height) / 2;
+  let cursorAt = { x: windowLeft + WINDOW.width - 40, y: windowTop + WINDOW.titlebar + 30 };
   await injectCursor(pop, cursorAt.x, cursorAt.y);
-  await shot(700); // idle, cursor resting in the corner
+  await shot(700); // idle, cursor resting near the top
 
   cursorAt = await clickAt(pop, shot, cursorAt, pop.locator("#enable"), { afterMs: 650 });
 
@@ -178,7 +279,9 @@ async function main() {
     cursorAt = await clickAt(pop, shot, cursorAt, authRow, { afterMs: 850 });
     const copyBtn = pop.locator('button[aria-label="Copy value of Authorization"]').first();
     if (await copyBtn.count()) {
-      cursorAt = await clickAt(pop, shot, cursorAt, copyBtn, { afterMs: 900 }); // shows the "Copied." toast
+      cursorAt = await clickAt(pop, shot, cursorAt, copyBtn, { afterMs: 300 });
+      await scrollContentToBottom(pop);
+      await shot(900); // the "Copied." toast, scrolled into view
     }
   }
 
@@ -187,7 +290,9 @@ async function main() {
     cursorAt = await clickAt(pop, shot, cursorAt, menuBtn, { afterMs: 1000 });
     const jsonItem = pop.locator("#copy-json");
     if (await jsonItem.count()) {
-      cursorAt = await clickAt(pop, shot, cursorAt, jsonItem, { afterMs: 1300 }); // "Copied as JSON" toast, menu closes
+      cursorAt = await clickAt(pop, shot, cursorAt, jsonItem, { afterMs: 300 });
+      await scrollContentToBottom(pop);
+      await shot(1300); // "Copied as JSON" toast, scrolled into view
     }
   }
 
