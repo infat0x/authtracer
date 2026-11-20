@@ -1,13 +1,13 @@
-// Builds the README demo GIF from a scripted walkthrough against a local
-// fixture page, using only synthetic, clearly fake credentials. The popup is
-// staged inside a wide, rounded "window" frame with Mac style traffic lights,
-// and a synthetic cursor glides in and clicks each control, so the GIF reads
-// as a real interaction instead of a slideshow of static states.
+// Builds the README demo GIF: a fake Mac style browser window opens, a
+// synthetic cursor clicks the AuthTracer toolbar icon, the camera zooms in
+// on the popup that drops down, and the rest is the same scripted
+// walkthrough as before (clicks, scrolling, toasts), against a local
+// fixture page and using only synthetic, clearly fake credentials.
 // Run with: node tools/record-demo.mjs
 import { PNG } from "pngjs";
 import gifenc from "gifenc";
 const { GIFEncoder, quantize, applyPalette } = gifenc;
-import { writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import http from "node:http";
@@ -15,12 +15,14 @@ import { launch, stageExtension } from "../tests/harness.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = join(root, "assets", "demo.gif");
+const ICON_DATA_URL = `data:image/png;base64,${readFileSync(join(root, "extension", "icons", "icon32.png")).toString("base64")}`;
 
-// The outer canvas the window sits on, and the window itself. Landscape, not
-// a tall phone shaped strip, and content that overflows the window scrolls
-// inside it instead of growing the frame.
-const CANVAS = { width: 980, height: 660 };
-const WINDOW = { width: 560, height: 580, titlebar: 34 };
+// The captured canvas, the fake browser window on it, and the popup that
+// drops down from the toolbar icon once clicked.
+const STAGE = { width: 1180, height: 700 };
+const BROWSER = { width: 1080, height: 620, top: 36, toolbar: 46 };
+const WINDOW = { width: 460, height: 520, titlebar: 32 };
+const ZOOM_SCALE = 1.32;
 
 // A believable but obviously fake site, for a clean looking demo.
 const PAGE = `<!doctype html><html><head><meta charset="utf-8">
@@ -50,84 +52,171 @@ function startServer() {
   return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve({ server, port: server.address().port })));
 }
 
-// ---- Mac style window chrome -----------------------------------------------
+// ---- The fake browser window, toolbar and popup dropdown -------------------
 
-// Moves the popup's own body content into a rounded, scrollable "window" with
-// a title bar, centered on a wide canvas. Everything the popup already does
-// (its own CSS, its own elements) is untouched, just relocated on screen.
-async function stageAsWindow(pop) {
+// Builds, on the popup's own page, a wide "camera" scene: a Mac style browser
+// window with an address bar and a toolbar icon, and (hidden at first) the
+// popup's real content staged as a dropdown under that icon. Nothing in the
+// extension's own CSS or markup is touched, it is only relocated on screen.
+async function buildScene(pop, origin) {
   await pop.addStyleTag({
     content: `
       html { background: transparent !important; }
       body {
         box-sizing: border-box !important;
-        width: ${CANVAS.width}px !important;
+        width: ${STAGE.width}px !important;
         min-width: 0 !important;
         max-width: none !important;
-        height: ${CANVAS.height}px !important;
+        height: ${STAGE.height}px !important;
         margin: 0 !important;
         padding: 0 !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        background: radial-gradient(ellipse at 28% 18%, #343a46 0%, #15161a 65%) !important;
         overflow: hidden !important;
+        background: radial-gradient(ellipse at 50% 42%, #343a46 0%, #15161a 68%) !important;
+        font: 14px/1.5 system-ui, sans-serif !important;
       }
+      #__demo_zoom__ { position: absolute; inset: 0; transform-origin: 0 0; }
+      #__demo_browser__ {
+        position: absolute;
+        left: ${(STAGE.width - BROWSER.width) / 2}px;
+        top: ${BROWSER.top}px;
+        width: ${BROWSER.width}px;
+        height: ${BROWSER.height}px;
+        border-radius: 12px;
+        overflow: hidden;
+        background: #f4f5f7;
+        box-shadow: 0 26px 54px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
+        transition: opacity 260ms ease;
+      }
+      #__demo_toolbar__ {
+        height: ${BROWSER.toolbar}px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 0 14px;
+        background: #24272c;
+        border-bottom: 1px solid #31353c;
+      }
+      #__demo_toolbar__ .dots { display: flex; gap: 8px; flex: none; }
+      #__demo_toolbar__ .dots i { width: 12px; height: 12px; border-radius: 50%; display: block; }
+      #__demo_addr {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        height: 26px;
+        padding: 0 12px;
+        border-radius: 999px;
+        background: #1b1d21;
+        color: #9aa0a8;
+        font-size: 12px;
+        font-family: ui-monospace, Consolas, monospace;
+      }
+      #__demo_icons { flex: none; display: flex; align-items: center; gap: 10px; }
+      #__demo_icons .ph { width: 20px; height: 20px; border-radius: 5px; background: #3a3e45; }
+      #__demo_icons .ext { width: 24px; height: 24px; border-radius: 6px; display: block; cursor: pointer; }
+      #__demo_page { padding: 40px 48px; color: #1c1f24; }
+      #__demo_page h1 { font-size: 26px; margin: 0 0 10px; }
+      #__demo_page p { margin: 0; color: #5b6269; font-size: 14px; }
+
       #__demo_window__ {
+        position: absolute;
         width: ${WINDOW.width}px;
         height: ${WINDOW.height}px;
-        border-radius: 14px;
+        border-radius: 10px;
         overflow: hidden;
         display: flex;
         flex-direction: column;
         background: #1b1d21;
-        box-shadow: 0 32px 64px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.06);
+        box-shadow: 0 20px 44px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.08);
+        opacity: 0;
+        transform: translateY(-6px);
+        transition: opacity 160ms ease, transform 160ms ease;
       }
+      #__demo_window__.open { opacity: 1; transform: translateY(0); }
       #__demo_titlebar__ {
         flex: none;
         height: ${WINDOW.titlebar}px;
         display: flex;
         align-items: center;
-        gap: 8px;
-        padding: 0 14px;
+        padding: 0 12px;
         background: #24272c;
         border-bottom: 1px solid #31353c;
-        position: relative;
-      }
-      #__demo_titlebar__ i { width: 12px; height: 12px; border-radius: 50%; display: block; }
-      #__demo_titlebar__ span {
-        position: absolute;
-        left: 0;
-        right: 0;
-        text-align: center;
-        font: 600 12px system-ui, sans-serif;
+        font: 600 11px system-ui, sans-serif;
         color: #8a8f98;
-        pointer-events: none;
       }
       #__demo_content__ {
         flex: 1;
         min-height: 0;
         overflow-y: auto;
-        width: 520px;
-        margin: 0 auto;
+        width: 100%;
       }
       #__demo_content__ > * { width: 100% !important; }
     `
   });
+
+  await pop.evaluate(
+    ({ host, iconUrl, win, browser }) => {
+      const zoom = document.createElement("div");
+      zoom.id = "__demo_zoom__";
+
+      const browserEl = document.createElement("div");
+      browserEl.id = "__demo_browser__";
+      const toolbar = document.createElement("div");
+      toolbar.id = "__demo_toolbar__";
+      toolbar.innerHTML = `
+        <div class="dots"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div>
+        <div id="__demo_addr">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+          <span>${host}</span>
+        </div>
+        <div id="__demo_icons">
+          <span class="ph"></span><span class="ph"></span>
+          <img class="ext" id="__demo_ext_icon__" src="${iconUrl}" alt="">
+        </div>`;
+      const pageEl = document.createElement("div");
+      pageEl.id = "__demo_page";
+      pageEl.innerHTML = "<h1>Acme Portal</h1><p>Demo fixture for the AuthTracer README.</p>";
+      browserEl.append(toolbar, pageEl);
+
+      // The popup's own content, moved here wholesale, anchored like a real
+      // dropdown just under the toolbar icon.
+      const kids = [...document.body.children].filter((k) => k !== zoom);
+      const winEl = document.createElement("div");
+      winEl.id = "__demo_window__";
+      const iconRect = { top: browser.top + browser.toolbar, right: (window.innerWidth - browser.left - browser.width) + 16 };
+      winEl.style.top = `${iconRect.top + 8}px`;
+      winEl.style.right = `${iconRect.right}px`;
+      const bar = document.createElement("div");
+      bar.id = "__demo_titlebar__";
+      bar.textContent = "AuthTracer";
+      const content = document.createElement("div");
+      content.id = "__demo_content__";
+      for (const k of kids) content.appendChild(k);
+      winEl.append(bar, content);
+
+      zoom.append(browserEl, winEl);
+      document.body.appendChild(zoom);
+    },
+    {
+      host: new URL(origin).host,
+      iconUrl: ICON_DATA_URL,
+      win: WINDOW,
+      browser: { top: BROWSER.top, left: (STAGE.width - BROWSER.width) / 2, width: BROWSER.width, toolbar: BROWSER.toolbar }
+    }
+  );
+}
+
+async function openDropdown(pop) {
+  await pop.evaluate(() => document.getElementById("__demo_window__")?.classList.add("open"));
+  await pop.waitForTimeout(200); // real time for the CSS entrance transition to finish
+}
+
+async function fadeBrowser(pop) {
   await pop.evaluate(() => {
-    const kids = [...document.body.children];
-    const win = document.createElement("div");
-    win.id = "__demo_window__";
-    const bar = document.createElement("div");
-    bar.id = "__demo_titlebar__";
-    bar.innerHTML =
-      '<i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span>AuthTracer</span>';
-    const content = document.createElement("div");
-    content.id = "__demo_content__";
-    for (const k of kids) content.appendChild(k);
-    win.append(bar, content);
-    document.body.appendChild(win);
+    const b = document.getElementById("__demo_browser__");
+    if (b) b.style.opacity = "0";
   });
+  await pop.waitForTimeout(300); // real time for the CSS fade to finish
 }
 
 async function scrollContentTo(pop, locator) {
@@ -145,7 +234,32 @@ async function scrollContentToBottom(pop) {
   await pop.waitForTimeout(60);
 }
 
-// ---- Synthetic cursor -----------------------------------------------------
+// ---- Camera: zooms the whole scene toward a fixed content space point -----
+
+async function setZoom(pop, scale, point) {
+  await pop.evaluate(
+    ({ scale, point, center }) => {
+      const z = document.getElementById("__demo_zoom__");
+      if (!z) return;
+      const tx = center.x - point.x * scale;
+      const ty = center.y - point.y * scale;
+      z.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+    },
+    { scale, point, center: { x: STAGE.width / 2, y: STAGE.height / 2 } }
+  );
+}
+
+async function zoomTo(pop, shot, point, fromScale, toScale, steps = 16, holdMs = 45) {
+  for (let i = 1; i <= steps; i++) {
+    const t = 1 - Math.pow(1 - i / steps, 2);
+    await setZoom(pop, fromScale + (toScale - fromScale) * t, point);
+    await shot(holdMs);
+  }
+}
+
+// ---- Synthetic cursor -------------------------------------------------------
+// Kept as a direct child of <body>, outside the zoom wrapper, so it always
+// stays in real viewport coordinates while the scene underneath it zooms.
 
 async function injectCursor(pop, startX, startY) {
   await pop.evaluate(
@@ -204,8 +318,8 @@ async function glideTo(pop, shot, from, to, steps = 10, holdMs = 35) {
 // Scrolls the target into view, moves to it, shows a click ripple, performs
 // the real click, then settles. Returns the point clicked, so the next move
 // can start there.
-async function clickAt(pop, shot, cursorAt, locator, { settleMs = 90, afterMs = 1100 } = {}) {
-  await scrollContentTo(pop, locator);
+async function clickAt(pop, shot, cursorAt, locator, { settleMs = 90, afterMs = 1100, scroll = true } = {}) {
+  if (scroll) await scrollContentTo(pop, locator);
   const box = await locator.boundingBox();
   const target = { x: box.x + box.width / 2, y: box.y + Math.min(box.height / 2, 14) };
   const at = await glideTo(pop, shot, cursorAt, target);
@@ -238,19 +352,33 @@ async function main() {
   );
 
   const pop = await ctx.newPage();
-  await pop.setViewportSize(CANVAS);
+  await pop.setViewportSize(STAGE);
   await pop.goto(`chrome-extension://${id}/popup/popup.html?tab=${tabId}`);
   await pop.waitForSelector("#enable");
-  await stageAsWindow(pop);
+  await buildScene(pop, origin);
 
   const frames = [];
   const shot = async (holdMs) => frames.push({ buf: await pop.screenshot({ type: "png" }), holdMs });
 
-  const windowLeft = (CANVAS.width - WINDOW.width) / 2;
-  const windowTop = (CANVAS.height - WINDOW.height) / 2;
-  let cursorAt = { x: windowLeft + WINDOW.width - 40, y: windowTop + WINDOW.titlebar + 30 };
+  // Establishing shot: the browser window, nothing happening yet.
+  let cursorAt = { x: STAGE.width * 0.18, y: STAGE.height * 0.82 };
   await injectCursor(pop, cursorAt.x, cursorAt.y);
-  await shot(700); // idle, cursor resting near the top
+  await shot(900);
+
+  // Glide to the toolbar icon and click it.
+  const extIcon = pop.locator("#__demo_ext_icon__");
+  cursorAt = await clickAt(pop, shot, cursorAt, extIcon, { scroll: false, settleMs: 90, afterMs: 60 });
+  await openDropdown(pop);
+  await shot(500); // the dropdown appears under the icon
+
+  // Zoom the camera in on the dropdown, then fade the browser away so the
+  // rest of the walkthrough is a clean, focused view of just the popup.
+  const winBox = await pop.locator("#__demo_window__").boundingBox();
+  const zoomPoint = { x: winBox.x + winBox.width / 2, y: winBox.y + winBox.height / 2 };
+  await zoomTo(pop, shot, zoomPoint, 1, ZOOM_SCALE);
+  await shot(400);
+  await fadeBrowser(pop);
+  await shot(500);
 
   cursorAt = await clickAt(pop, shot, cursorAt, pop.locator("#enable"), { afterMs: 650 });
 
@@ -292,7 +420,7 @@ async function main() {
     if (await jsonItem.count()) {
       cursorAt = await clickAt(pop, shot, cursorAt, jsonItem, { afterMs: 300 });
       await scrollContentToBottom(pop);
-      await shot(1300); // "Copied as JSON" toast, scrolled into view
+      await shot(1400); // "Copied as JSON" toast, scrolled into view
     }
   }
 
