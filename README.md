@@ -1,3 +1,5 @@
+<img src="extension/icons/icon48.png" width="32" height="32" align="left"> 
+
 # AuthTracer
 
 A browser extension that shows which authentication signals a website is actually sending while you use it: session cookies, bearer tokens, JWTs, API keys and CSRF tokens. Built for security testers who want that information at a glance, without opening DevTools every time.
