@@ -1,0 +1,8 @@
+node_modules/
+tests/out/
+*.log
+.DS_Store
+Thumbs.db
+
+# Original design brief, kept locally only
+prompt.md

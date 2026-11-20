@@ -1,0 +1,17 @@
+{
+  "name": "authtracer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser extension that shows which authentication signals a site sends: tokens, cookies, JWTs and API keys.",
+  "license": "MIT",
+  "scripts": {
+    "test:unit": "node --test tests/unit.test.mjs",
+    "test:e2e": "node tests/e2e.mjs"
+  },
+  "devDependencies": {
+    "gifenc": "^1.0.3",
+    "playwright-core": "^1.65.1",
+    "pngjs": "^7.0.0"
+  }
+}
