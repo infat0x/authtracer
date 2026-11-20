@@ -1,8 +1,10 @@
-<img src="extension/icons/icon48.png" width="32" height="32" align="left"> 
+<p align="center">
+  <img src="extension/icons/icon128.png" width="72" height="72" alt="AuthTracer icon">
+</p>
 
-# AuthTracer
+<h1 align="center">AuthTracer</h1>
 
-A browser extension that shows which authentication signals a website is actually sending while you use it: session cookies, bearer tokens, JWTs, API keys and CSRF tokens. Built for security testers who want that information at a glance, without opening DevTools every time.
+<p align="center">A browser extension that shows which authentication signals a website is actually sending while you use it: session cookies, bearer tokens, JWTs, API keys and CSRF tokens. Built for security testers who want that information at a glance, without opening DevTools every time.</p>
 
 ![AuthTracer popup showing signals appear, a token value, and the export menu](assets/demo.gif)
 <!-- Replace with your own screen recording whenever you have one -->
