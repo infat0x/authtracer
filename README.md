@@ -28,18 +28,24 @@ Everything runs locally in the browser. Nothing is sent anywhere, there is no te
 
 ## Install
 
-Clone the repository, then load the `extension` folder as an unpacked extension.
+Not published in the Chrome Web Store or Edge Add-ons yet, so it loads as an unpacked extension. Chrome and Edge block one click installs from outside their stores on purpose, as a security measure, so this always takes a few manual steps.
 
-**Chrome**
+**1. Get the extension**
+
+Download the [latest release](https://github.com/infat0x/authtracer/releases/latest) and extract the zip, or clone this repository if you want the source.
+
+**2. Load it**
+
+Chrome
 1. Open `chrome://extensions`
 2. Turn on Developer mode
-3. Click Load unpacked and select the `extension` folder
+3. Click Load unpacked and select the extracted `authtracer` folder (or the `extension` folder if you cloned the repository)
 4. Pin AuthTracer from the extensions menu
 
-**Edge**
+Edge
 1. Open `edge://extensions`
 2. Turn on Developer mode
-3. Click Load unpacked and select the `extension` folder
+3. Click Load unpacked and select the same folder
 
 Other Chromium browsers (Brave, Opera, Vivaldi) use the same steps. Firefox and Safari are not supported, since they need a different manifest and background model.
 
