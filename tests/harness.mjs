@@ -14,7 +14,7 @@ export function chromiumPath() {
   if (process.env.SL_BROWSER) return process.env.SL_BROWSER;
   const p = chromium.executablePath();
   if (!p || !existsSync(p)) {
-    throw new Error("No Playwright Chromium found. Run: npx playwright install chromium");
+    throw new Error("No Playwright Chromium found. Run: npx playwright-core install chromium");
   }
   return p;
 }
